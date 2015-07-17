@@ -28,6 +28,7 @@
   function DuckType (options) {
     this.name = options.name;
     this.test = options.test;
+    this.validate = options.validate;
   }
 
   /**
@@ -38,6 +39,15 @@
   DuckType.prototype.test = function (object) {
     return false;
   };
+
+  var fail = function(object, message, cause) {
+      var typeError = new TypeError(JSON.stringify(object) + ' failed validation: ' + message);
+      if (cause) {
+          typeError.cause = cause;
+          typeError.message += cause.message;
+      }
+      throw typeError;
+  }
 
   /**
    * Test whether an object matches this DuckType.
@@ -78,6 +88,9 @@
     test: function isArray(object) {
       return (Array.isArray(object) ||
           ((object != null) && (object.toString() === '[object Arguments]')));
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not an array");
     }
   });
 
@@ -86,6 +99,9 @@
     name: 'Boolean',
     test: function isBoolean(object) {
       return ((object instanceof Boolean) || (typeof object === 'boolean'));
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not a boolean");
     }
   });
 
@@ -94,6 +110,9 @@
     name: 'Date',
     test: function isDate(object) {
       return (object instanceof Date);
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not a date");
     }
   });
 
@@ -102,6 +121,9 @@
     name: 'Function',
     test: function isFunction(object) {
       return ((object instanceof Function) || (typeof object === 'function'));
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not a function");
     }
   });
 
@@ -110,6 +132,9 @@
     name: 'Number',
     test: function isNumber(object) {
       return ((object instanceof Number) || (typeof object === 'number'));
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not a number");
     }
   });
 
@@ -118,6 +143,9 @@
     name: 'Object',
     test: function isObject(object) {
       return ((object instanceof Object) && (object.constructor === Object));
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not an object");
     }
   });
 
@@ -126,6 +154,9 @@
     name: 'RegExp',
     test: function isRegExp(object) {
       return (object instanceof RegExp);
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not a regexp");
     }
   });
 
@@ -134,6 +165,9 @@
     name: 'String',
     test: function isString(object) {
       return ((object instanceof String) || (typeof object === 'string'));
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not a string");
     }
   });
 
@@ -142,6 +176,9 @@
     name: 'null',
     test: function isNull(object) {
       return (object === null);
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not null");
     }
   });
 
@@ -150,6 +187,9 @@
     name: 'undefined',
     test: function isUndefined(object) {
       return (object === undefined);
+    },
+    validate: function (object) {
+        if (!this.test(object)) fail(object, "is not undefined");
     }
   });
 
@@ -166,7 +206,8 @@
     var tests = {};
     for (var prop in type) {
       if (type.hasOwnProperty(prop)) {
-        tests[prop] = ducktype(type[prop]).test;
+        var dt = ducktype(type[prop]);
+        tests[prop] = dt.test;
       }
     }
 
@@ -189,6 +230,22 @@
           }
         }
         return true;
+      },
+      validate: function(object) {
+        // test whether we have an object
+        basic.object.validate(object);
+
+        // test each of the defined properties
+        for (var prop in validations) {
+          if (validations.hasOwnProperty(prop)) {
+            try {
+              ducktype(type[prop]).validate(object[prop]);
+            }
+            catch (error) {
+              fail(object, "Property " + prop + " failed validation." , error);
+            }
+          }
+        }
       }
     });
   }
@@ -204,7 +261,8 @@
     var tests = [];
     var isArray = basic.array.test;
     for (var i = 0, ii = type.length; i < ii; i++) {
-      tests[i] = ducktype(type[i]).test;
+      var dt = ducktype(type[i]);
+      tests[i] = dt.test;
     }
 
     // create the ducktype
@@ -229,6 +287,22 @@
         }
 
         return true;
+      },
+      validate: function(object) {
+        // test whether object is an array
+        basic.array.validate(object);
+
+        // test all childs of the array
+        for (var i = 0, ii = type.length; i < ii; i++) {
+          try {
+            if (!type[i].optional) {
+              ducktype(type[i]).validate(object[i]);
+            }
+          }
+          catch (error) {
+            fail(object, "Element " + i + " failed validation." , error);
+          }
+        }
       }
     });
 
@@ -244,7 +318,8 @@
    */
   function createArrayRepeat (type, options) {
     // a single child, repeat for each child
-    var childTest = ducktype(type[0]).test;
+    var dt = ducktype(type[0]);
+    var childTest = dt.test;
 
     // create the ducktype
     return new DuckType({
@@ -262,6 +337,20 @@
           }
         }
         return true;
+      },
+      validate: function test (object) {
+        // test whether object is an array
+        basic.array.validate(object);
+
+        // test all childs of the array
+        for (var i = 0, ii = object.length; i < ii; i++) {
+          try {
+            ducktype(type[0]).validate(object[i]);
+          }
+          catch (error) {
+            fail(object, "Element " + i + " failed validation." , error);
+          }
+        }
       }
     });
 
@@ -280,6 +369,11 @@
       name: options && options.name || null,
       test: function test (object) {
         return (object instanceof type);
+      },
+      validate: function validate (object) {
+        if (!(object instanceof type)) {
+           fail(object, "is not an instance of " + type);
+        }
       }
     });
   }
@@ -294,6 +388,9 @@
     var tests = types.map(function (type) {
       return ducktype(type).test;
     });
+    var validations = types.map(function (type) {
+      return ducktype(type).validate;
+    });
 
     return new DuckType({
       name: options && options.name || null,
@@ -304,6 +401,21 @@
           }
         }
         return false;
+      },
+      validate: function validate (object) {
+        var passedOne = false;
+        for (var i = 0, ii = tests.length; i < ii; i++) {
+          try {
+             validations[i](object);
+             passedOne = true;
+             break;
+          }
+          catch (error) {
+          }
+        }
+        if (!passedOne) {
+          fail(object, "did not validate against any of: " + types);
+        }
       }
     });
   }
@@ -420,6 +532,7 @@
       newDucktype = createPrototype(type, options);
     }
 
+    var validate = newDucktype.validate;
     // process options
     if (options && ((options.optional !== undefined) || (options.nullable !== undefined))) {
       var optional = (options.optional !== undefined) ? options.optional : false;
@@ -432,8 +545,17 @@
           return test(object) ||
               ((object === null) && nullable) ||
               ((object === undefined) && optional);
+        },
+        validate: function (object) {
+          if ((object === null) && nullable)
+              return;
+          if ((object === undefined) && optional)
+              return;
+          validate(object);
         }
       });
+      newDucktype.optional = optional;
+      newDucktype.nullable = nullable;
     }
 
     // return the created ducktype
